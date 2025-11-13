@@ -12,6 +12,7 @@ A web-based timetable generation system using Constraint Satisfaction Problem (C
 - ✅ **Partial Solution Mode**: Skips impossible requirements and continues
 - ✅ **Unscheduled Report**: Shows which requirements couldn't be scheduled with reasons
 - ✅ **Download Results**: Download generated timetable as Excel file
+- ✅ **📅 Interactive Calendar View**: Visual weekly calendar with clickable events (NEW!)
 
 ## 📋 Prerequisites
 
@@ -53,6 +54,11 @@ A web-based timetable generation system using Constraint Satisfaction Problem (C
 6. **Download results:**
    - Click "Download Generated Timetable" button
    - Review unscheduled requirements if any
+
+7. **View timetable:**
+   - Choose between **Table View** or **Calendar View**
+   - **Calendar View**: Interactive weekly calendar with clickable events
+   - Click on any event to see full details (course, teacher, room, time, etc.)
 
 ### Option 2: Run Command Line Script
 
