@@ -18,398 +18,6 @@ except ImportError as e:
     st.error("Please ensure ttv5.py is in the same directory as app.py")
     st.stop()
 
-# Function to generate calendar HTML view
-def generate_calendar_html(df_timetable):
-    """Generate interactive calendar HTML from timetable dataframe"""
-    
-    # Convert timetable to events format
-    events = []
-    
-    for _, row in df_timetable.iterrows():
-        curriculum = row.get('CURRICULUM', '')
-        course = row.get('COURSE', '')
-        semester = row.get('SEMESTER', '')
-        section = row.get('SECTION', '')
-        teacher = row.get('TEACHER', '')
-        
-        # Process each day (DAY1 to DAY5)
-        for day_num in range(1, 6):
-            day_col = f'DAY{day_num}'
-            time_from_col = f'DAY{day_num}_TIME_FROM'
-            time_to_col = f'DAY{day_num}_TIME_TO'
-            room_col = f'DAY{day_num}_ROOM'
-            
-            if day_col in df_timetable.columns and pd.notna(row.get(day_col)):
-                day = row.get(day_col, '')
-                time_from = row.get(time_from_col, '')
-                time_to = row.get(time_to_col, '')
-                room = row.get(room_col, '')
-                
-                if day and time_from and time_to:
-                    events.append({
-                        'day': day,
-                        'time_from': str(time_from),
-                        'time_to': str(time_to),
-                        'course': course,
-                        'section': section,
-                        'teacher': teacher,
-                        'room': room,
-                        'curriculum': curriculum,
-                        'semester': semester
-                    })
-    
-    # Convert events to JSON
-    import json
-    events_json = json.dumps(events)
-    
-    # Generate HTML with embedded calendar viewer
-    html = f"""
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <meta charset="UTF-8">
-        <style>
-            * {{ box-sizing: border-box; margin: 0; padding: 0; }}
-            body {{ 
-                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
-                background: #f7f9fc;
-                padding: 20px;
-            }}
-            .calendar-container {{
-                max-width: 1400px;
-                margin: 0 auto;
-                background: white;
-                border-radius: 12px;
-                box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-                overflow: hidden;
-            }}
-            .calendar-header {{
-                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                color: white;
-                padding: 20px;
-                text-align: center;
-            }}
-            .calendar-grid {{
-                display: grid;
-                grid-template-columns: 80px repeat(7, 1fr);
-                gap: 1px;
-                background: #e5e7eb;
-            }}
-            .day-header {{
-                background: #f3f4f6;
-                padding: 12px;
-                font-weight: 600;
-                text-align: center;
-                border-bottom: 2px solid #d1d5db;
-            }}
-            .time-slot {{
-                background: white;
-                padding: 8px;
-                font-size: 11px;
-                color: #6b7280;
-                text-align: right;
-            }}
-            .event-cell {{
-                background: white;
-                padding: 4px;
-                min-height: 60px;
-                position: relative;
-            }}
-            .event {{
-                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                color: white;
-                padding: 8px;
-                border-radius: 6px;
-                margin: 2px 0;
-                font-size: 11px;
-                cursor: pointer;
-                transition: transform 0.2s;
-            }}
-            .event:hover {{
-                transform: scale(1.02);
-                box-shadow: 0 4px 8px rgba(0,0,0,0.2);
-            }}
-            .event-title {{
-                font-weight: 600;
-                margin-bottom: 4px;
-            }}
-            .event-details {{
-                font-size: 10px;
-                opacity: 0.9;
-            }}
-            .legend {{
-                padding: 15px 20px;
-                background: #f9fafb;
-                border-top: 1px solid #e5e7eb;
-                display: flex;
-                gap: 20px;
-                flex-wrap: wrap;
-                font-size: 12px;
-                color: #6b7280;
-            }}
-            .modal {{
-                display: none;
-                position: fixed;
-                top: 0;
-                left: 0;
-                width: 100%;
-                height: 100%;
-                background: rgba(0,0,0,0.5);
-                z-index: 1000;
-                align-items: center;
-                justify-content: center;
-            }}
-            .modal.active {{
-                display: flex;
-            }}
-            .modal-content {{
-                background: white;
-                padding: 30px;
-                border-radius: 12px;
-                max-width: 500px;
-                width: 90%;
-                box-shadow: 0 20px 25px rgba(0,0,0,0.3);
-            }}
-            .modal-header {{
-                font-size: 20px;
-                font-weight: 700;
-                margin-bottom: 20px;
-                color: #1f2937;
-            }}
-            .modal-body {{
-                color: #4b5563;
-                line-height: 1.6;
-            }}
-            .modal-row {{
-                display: flex;
-                margin: 10px 0;
-                padding: 8px 0;
-                border-bottom: 1px solid #f3f4f6;
-            }}
-            .modal-label {{
-                font-weight: 600;
-                width: 120px;
-                color: #6b7280;
-            }}
-            .modal-value {{
-                flex: 1;
-                color: #1f2937;
-            }}
-            .close-btn {{
-                background: #667eea;
-                color: white;
-                border: none;
-                padding: 10px 20px;
-                border-radius: 6px;
-                cursor: pointer;
-                margin-top: 20px;
-                font-weight: 600;
-            }}
-            .close-btn:hover {{
-                background: #5568d3;
-            }}
-        </style>
-    </head>
-    <body>
-        <div class="calendar-container">
-            <div class="calendar-header">
-                <h2>📅 Weekly Timetable - Interactive Calendar View</h2>
-                <p style="margin-top: 8px; opacity: 0.9;">Click on any event to view details</p>
-            </div>
-            
-            <div class="calendar-grid" id="calendar">
-                <!-- Calendar will be generated here -->
-            </div>
-            
-            <div class="legend">
-                <span><strong>Total Events:</strong> <span id="eventCount">0</span></span>
-                <span><strong>Days:</strong> Mon-Fri</span>
-                <span><strong>💡 Tip:</strong> Click on events to see full details</span>
-            </div>
-        </div>
-        
-        <div class="modal" id="eventModal">
-            <div class="modal-content">
-                <div class="modal-header" id="modalTitle">Event Details</div>
-                <div class="modal-body" id="modalBody"></div>
-                <button class="close-btn" onclick="closeModal()">Close</button>
-            </div>
-        </div>
-        
-        <script>
-            const events = {events_json};
-            const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-            
-            // Parse time string to minutes
-            function parseTime(timeStr) {{
-                const str = String(timeStr).trim();
-                
-                // Try HH:MM:SS format
-                let match = str.match(/^(\\d{{1,2}}):(\\d{{2}}):(\\d{{2}})$/);
-                if (match) {{
-                    return parseInt(match[1]) * 60 + parseInt(match[2]);
-                }}
-                
-                // Try HH:MM format
-                match = str.match(/^(\\d{{1,2}}):(\\d{{2}})$/);
-                if (match) {{
-                    return parseInt(match[1]) * 60 + parseInt(match[2]);
-                }}
-                
-                // Try 12-hour format
-                match = str.match(/^(\\d{{1,2}}):(\\d{{2}})\\s*(AM|PM)$/i);
-                if (match) {{
-                    let hours = parseInt(match[1]);
-                    const mins = parseInt(match[2]);
-                    const ampm = match[3].toUpperCase();
-                    if (ampm === 'PM' && hours !== 12) hours += 12;
-                    if (ampm === 'AM' && hours === 12) hours = 0;
-                    return hours * 60 + mins;
-                }}
-                
-                return 0;
-            }}
-            
-            // Format minutes to time string
-            function formatTime(mins) {{
-                const hours = Math.floor(mins / 60);
-                const minutes = mins % 60;
-                const ampm = hours >= 12 ? 'PM' : 'AM';
-                const h12 = hours % 12 || 12;
-                return `${{h12}}:${{String(minutes).padStart(2, '0')}} ${{ampm}}`;
-            }}
-            
-            // Group events by day and time
-            function groupEvents() {{
-                const grouped = {{}};
-                days.forEach(day => {{
-                    grouped[day] = {{}};
-                }});
-                
-                events.forEach(event => {{
-                    const day = event.day;
-                    const timeKey = `${{event.time_from}}-${{event.time_to}}`;
-                    if (!grouped[day]) grouped[day] = {{}};
-                    if (!grouped[day][timeKey]) grouped[day][timeKey] = [];
-                    grouped[day][timeKey].push(event);
-                }});
-                
-                return grouped;
-            }}
-            
-            // Get all unique time slots
-            function getTimeSlots() {{
-                const slots = new Set();
-                events.forEach(event => {{
-                    slots.add(`${{event.time_from}}-${{event.time_to}}`);
-                }});
-                return Array.from(slots).sort((a, b) => {{
-                    const aStart = parseTime(a.split('-')[0]);
-                    const bStart = parseTime(b.split('-')[0]);
-                    return aStart - bStart;
-                }});
-            }}
-            
-            // Show event details in modal
-            function showEventDetails(event) {{
-                const modal = document.getElementById('eventModal');
-                const modalBody = document.getElementById('modalBody');
-                
-                modalBody.innerHTML = `
-                    <div class="modal-row">
-                        <div class="modal-label">Course:</div>
-                        <div class="modal-value">${{event.course}}</div>
-                    </div>
-                    <div class="modal-row">
-                        <div class="modal-label">Section:</div>
-                        <div class="modal-value">${{event.section}}</div>
-                    </div>
-                    <div class="modal-row">
-                        <div class="modal-label">Teacher:</div>
-                        <div class="modal-value">${{event.teacher}}</div>
-                    </div>
-                    <div class="modal-row">
-                        <div class="modal-label">Room:</div>
-                        <div class="modal-value">${{event.room}}</div>
-                    </div>
-                    <div class="modal-row">
-                        <div class="modal-label">Day:</div>
-                        <div class="modal-value">${{event.day}}</div>
-                    </div>
-                    <div class="modal-row">
-                        <div class="modal-label">Time:</div>
-                        <div class="modal-value">${{event.time_from}} - ${{event.time_to}}</div>
-                    </div>
-                    <div class="modal-row">
-                        <div class="modal-label">Curriculum:</div>
-                        <div class="modal-value">${{event.curriculum}}</div>
-                    </div>
-                    <div class="modal-row">
-                        <div class="modal-label">Semester:</div>
-                        <div class="modal-value">${{event.semester}}</div>
-                    </div>
-                `;
-                
-                modal.classList.add('active');
-            }}
-            
-            function closeModal() {{
-                document.getElementById('eventModal').classList.remove('active');
-            }}
-            
-            // Close modal on background click
-            document.getElementById('eventModal').addEventListener('click', (e) => {{
-                if (e.target.id === 'eventModal') closeModal();
-            }});
-            
-            // Render calendar
-            function renderCalendar() {{
-                const calendar = document.getElementById('calendar');
-                const grouped = groupEvents();
-                const timeSlots = getTimeSlots();
-                
-                // Header row
-                let html = '<div class="day-header">Time</div>';
-                days.forEach(day => {{
-                    html += `<div class="day-header">${{day}}</div>`;
-                }});
-                
-                // Time slot rows
-                timeSlots.forEach(slot => {{
-                    const [start, end] = slot.split('-');
-                    html += `<div class="time-slot">${{start}}<br>to<br>${{end}}</div>`;
-                    
-                    days.forEach(day => {{
-                        const dayEvents = grouped[day][slot] || [];
-                        html += '<div class="event-cell">';
-                        dayEvents.forEach(event => {{
-                            html += `
-                                <div class="event" onclick='showEventDetails(${{JSON.stringify(event)}})'>
-                                    <div class="event-title">${{event.course}}</div>
-                                    <div class="event-details">
-                                        ${{event.section}} • ${{event.teacher}}<br>
-                                        ${{event.room}}
-                                    </div>
-                                </div>
-                            `;
-                        }});
-                        html += '</div>';
-                    }});
-                }});
-                
-                calendar.innerHTML = html;
-                document.getElementById('eventCount').textContent = events.length;
-            }}
-            
-            // Initialize
-            renderCalendar();
-        </script>
-    </body>
-    </html>
-    """
-    
-    return html
-
 # Page configuration
 st.set_page_config(
     page_title="Timetable Generator",
@@ -723,42 +331,74 @@ if st.session_state.generated_file:
     st.markdown("---")
     st.subheader("📅 Interactive Calendar View")
     
-    view_option = st.radio(
-        "Choose view:",
-        ["Table View", "Calendar View"],
-        horizontal=True,
-        key="view_option"
-    )
+    # Check if HTML viewer exists
+    html_viewer_path = os.path.join(os.getcwd(), "timetable_calendar_view_light_v6.html")
     
-    if view_option == "Calendar View":
-        st.info("📌 Interactive calendar with clash detection - Click on events to see details")
+    if os.path.exists(html_viewer_path):
+        col_cal1, col_cal2 = st.columns([2, 1])
         
-        # Read the generated timetable to create calendar view
-        import streamlit.components.v1 as components
+        with col_cal1:
+            st.markdown("""
+                <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
+                            padding: 20px; border-radius: 12px; color: white;">
+                    <h3 style="margin: 0 0 10px 0;">🗓️ Advanced Calendar Viewer</h3>
+                    <p style="margin: 0; opacity: 0.9;">
+                        View your timetable in a beautiful interactive calendar with:
+                    </p>
+                    <ul style="margin: 10px 0 0 20px; opacity: 0.9;">
+                        <li>📊 Clash detection and highlighting</li>
+                        <li>🔍 Filter by curriculum, semester, section, teacher, course, room</li>
+                        <li>📅 Weekly grid view with time slots</li>
+                        <li>🤖 AI-powered insights (with OpenAI API)</li>
+                        <li>📱 Responsive design</li>
+                    </ul>
+                </div>
+            """, unsafe_allow_html=True)
         
-        try:
-            # Read the generated Excel file from session state
-            excel_data = io.BytesIO(st.session_state.generated_file)
-            df_timetable = pd.read_excel(excel_data, sheet_name='TimeTable')
+        with col_cal2:
+            st.markdown("### How to use:")
+            st.markdown("""
+                1. **Download** the timetable (above)
+                2. **Open** `timetable_calendar_view_light_v6.html` in your browser
+                3. **Upload** the downloaded Excel file
+                4. **Explore** with filters and clash detection!
+            """)
             
-            # Generate HTML calendar view
-            calendar_html = generate_calendar_html(df_timetable)
-            
-            # Display the calendar
-            components.html(calendar_html, height=800, scrolling=True)
-            
-        except Exception as e:
-            st.error(f"Error generating calendar view: {str(e)}")
-            st.info("Showing table view instead")
-            st.dataframe(df_timetable, use_container_width=True)
+            # Button to open HTML file
+            html_file_abs_path = os.path.abspath(html_viewer_path).replace('\\', '/')
+            st.markdown(f"""
+                <a href="file:///{html_file_abs_path}" target="_blank" style="text-decoration: none;">
+                    <button style="
+                        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                        color: white;
+                        border: none;
+                        padding: 12px 20px;
+                        border-radius: 8px;
+                        font-weight: 600;
+                        cursor: pointer;
+                        font-size: 14px;
+                        width: 100%;
+                        margin-top: 10px;
+                    ">
+                        🚀 Open Calendar Viewer
+                    </button>
+                </a>
+                <p style="font-size: 11px; color: #6b7280; margin-top: 5px; text-align: center;">
+                    Opens in new browser tab
+                </p>
+            """, unsafe_allow_html=True)
     else:
-        # Show table view
-        try:
-            excel_data = io.BytesIO(st.session_state.generated_file)
-            df_timetable = pd.read_excel(excel_data, sheet_name='TimeTable')
-            st.dataframe(df_timetable, use_container_width=True, height=600)
-        except Exception as e:
-            st.error(f"Error loading timetable: {str(e)}")
+        st.warning("⚠️ Calendar viewer (timetable_calendar_view_light_v6.html) not found in the current directory")
+    
+    # Show table view
+    st.markdown("---")
+    st.markdown("### 📊 Table View (Preview)")
+    try:
+        excel_data = io.BytesIO(st.session_state.generated_file)
+        df_timetable = pd.read_excel(excel_data, sheet_name='TimeTable')
+        st.dataframe(df_timetable, use_container_width=True, height=400)
+    except Exception as e:
+        st.error(f"Error loading timetable: {str(e)}")
 
 # Display unscheduled requirements
 if st.session_state.unscheduled_df is not None and not st.session_state.unscheduled_df.empty:
