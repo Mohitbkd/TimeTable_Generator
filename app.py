@@ -3,19 +3,17 @@ import pandas as pd
 import os
 import io
 from datetime import datetime
-import sys
 import warnings
+import streamlit.components.v1 as components
 
-# Suppress numpy warnings
+# Suppress warnings
 warnings.filterwarnings('ignore')
 
 # Import the timetable generation logic
 try:
     from ttv5 import TimetableCSPv2, read_input_v2, export_to_template
-    print("[INFO] Successfully imported ttv5 module")
 except ImportError as e:
     st.error(f"Error importing ttv5 module: {e}")
-    st.error("Please ensure ttv5.py is in the same directory as app.py")
     st.stop()
 
 # Page configuration
@@ -25,295 +23,151 @@ st.set_page_config(
     layout="wide"
 )
 
-# Custom CSS for better styling
-st.markdown("""
-    <style>
-    .main-header {
-        font-size: 2.5rem;
-        font-weight: bold;
-        color: #1f77b4;
-        text-align: center;
-        margin-bottom: 2rem;
-    }
-    .success-box {
-        padding: 1rem;
-        border-radius: 0.5rem;
-        background-color: #d4edda;
-        border: 1px solid #c3e6cb;
-        color: #155724;
-        margin: 1rem 0;
-    }
-    .error-box {
-        padding: 1rem;
-        border-radius: 0.5rem;
-        background-color: #f8d7da;
-        border: 1px solid #f5c6cb;
-        color: #721c24;
-        margin: 1rem 0;
-    }
-    .info-box {
-        padding: 1rem;
-        border-radius: 0.5rem;
-        background-color: #d1ecf1;
-        border: 1px solid #bee5eb;
-        color: #0c5460;
-        margin: 1rem 0;
-    }
-    </style>
-""", unsafe_allow_html=True)
-
-# Title
-st.markdown('<div class="main-header">📅 Timetable Generator</div>', unsafe_allow_html=True)
-
-# Sidebar for instructions
-with st.sidebar:
-    st.header("📖 Instructions")
-    st.markdown("""
-    ### How to Use:
-    1. **Upload Input File**: Upload your `InputData_v2.xlsx` file
-    2. **Upload Template**: Upload your `TimeTableImport_SIS.xlsx` template
-    3. **Configure Settings**: Adjust solver parameters if needed
-    4. **Generate**: Click "Generate Timetable" button
-    5. **Download**: Download the generated timetable
-    
-    ### Required Sheets in Input File:
-    - WINDOW
-    - TIMESLOTS
-    - REQUIREMENTS
-    - DAYS
-    - BREAKS (optional)
-    - TEACHER_AVAILABILITY (optional)
-    
-    ### Features:
-    - ✅ Automatic conflict resolution
-    - ✅ Teacher availability checking
-    - ✅ Virtual room support (Online classes)
-    - ✅ Partial solution mode (skips impossible requirements)
-    - ✅ Unscheduled requirements report
-    """)
-    
-    st.markdown("---")
-    st.markdown("**Version**: 1.0")
-    st.markdown("**Last Updated**: Nov 2025")
-
-# Main content area
-col1, col2 = st.columns([1, 1])
-
-with col1:
-    st.subheader("📁 Upload Input Files")
-    
-    # File uploader for input data
-    input_file = st.file_uploader(
-        "Upload Input Data Excel File (InputData_v2.xlsx)",
-        type=['xlsx'],
-        help="Upload the Excel file containing WINDOW, TIMESLOTS, REQUIREMENTS, DAYS sheets"
-    )
-    
-    # File uploader for template
-    template_file = st.file_uploader(
-        "Upload Template Excel File (TimeTableImport_SIS.xlsx)",
-        type=['xlsx'],
-        help="Upload the template Excel file for output formatting"
-    )
-
-with col2:
-    st.subheader("⚙️ Solver Configuration")
-    
-    # Configuration options
-    allow_partial = st.checkbox(
-        "Enable Partial Solution Mode",
-        value=True,
-        help="Skip impossible requirements and continue solving"
-    )
-    
-    debug_mode = st.checkbox(
-        "Enable Debug Mode",
-        value=False,
-        help="Show detailed debug output (slower but helpful for troubleshooting)"
-    )
-    
-    max_attempts = st.slider(
-        "Max Attempts Per Variable",
-        min_value=50,
-        max_value=500,
-        value=200,
-        step=50,
-        help="Number of attempts before skipping a stuck requirement"
-    )
-    
-    random_seed = st.number_input(
-        "Random Seed",
-        min_value=1,
-        max_value=9999,
-        value=123,
-        help="Set random seed for reproducible results"
-    )
-
 # Initialize session state
 if 'generated_file' not in st.session_state:
     st.session_state.generated_file = None
-if 'generation_log' not in st.session_state:
-    st.session_state.generation_log = []
 if 'unscheduled_df' not in st.session_state:
     st.session_state.unscheduled_df = None
+if 'generation_log' not in st.session_state:
+    st.session_state.generation_log = []
+
+# Title
+st.title("📅 Timetable Generator")
+st.markdown("---")
+
+# Instructions
+st.markdown("""
+### 📋 Instructions:
+1. **Upload** your input Excel file (`InputData_v2.xlsx`)
+2. **Click** Generate Timetable button
+3. **Download** the result or **View** in interactive calendar
+""")
+
+st.markdown("---")
+
+# File upload section
+st.subheader("📁 Upload Input File")
+input_file = st.file_uploader(
+    "Upload Input Data Excel File",
+    type=['xlsx'],
+    help="Upload the Excel file containing WINDOW, TIMESLOTS, REQUIREMENTS, DAYS sheets"
+)
+
+st.markdown("---")
 
 # Generate button
-st.markdown("---")
-col_btn1, col_btn2, col_btn3 = st.columns([1, 2, 1])
-
-with col_btn2:
-    generate_button = st.button(
-        "🚀 Generate Timetable",
-        type="primary",
-        use_container_width=True,
-        disabled=(input_file is None or template_file is None)
-    )
-
-# Process generation
-if generate_button:
-    if input_file and template_file:
-        try:
-            # Save uploaded files temporarily
-            input_path = "temp_input.xlsx"
-            template_path = "temp_template.xlsx"
-            output_path = "GeneratedTimetable.xlsx"
+if st.button("🚀 Generate Timetable", type="primary", use_container_width=True):
+    if input_file is None:
+        st.error("⚠️ Please upload the input file first!")
+    else:
+        # Check if template file exists
+        template_path = os.path.join(os.getcwd(), "TimeTableImport_SIS.xlsx")
+        if not os.path.exists(template_path):
+            st.error(f"⚠️ Template file not found: {template_path}")
+            st.info("Please ensure TimeTableImport_SIS.xlsx is in the same folder as app.py")
+            st.stop()
+        
+        # Save uploaded file temporarily
+        input_path = "temp_input.xlsx"
+        with open(input_path, "wb") as f:
+            f.write(input_file.getvalue())
+        
+        # Progress container
+        progress_container = st.container()
+        with progress_container:
+            st.info("🔄 Starting timetable generation...")
+            log_placeholder = st.empty()
             
-            with open(input_path, "wb") as f:
-                f.write(input_file.getbuffer())
+            # Capture generation logs
+            import sys
+            from io import StringIO
             
-            with open(template_path, "wb") as f:
-                f.write(template_file.getbuffer())
-            
-            # Progress indicator
-            progress_bar = st.progress(0)
-            status_text = st.empty()
-            log_container = st.expander("📋 Generation Log", expanded=True)
-            
-            with log_container:
-                log_area = st.empty()
-            
-            # Capture output
-            class StreamlitLogger:
-                def __init__(self):
-                    self.logs = []
-                
-                def write(self, text):
-                    if text.strip():
-                        self.logs.append(text.strip())
-                        log_area.text_area("Logs", "\n".join(self.logs[-50:]), height=300)
-                
-                def flush(self):
-                    pass
-            
-            logger = StreamlitLogger()
+            # Redirect stdout to capture logs
             old_stdout = sys.stdout
-            sys.stdout = logger
+            sys.stdout = log_buffer = StringIO()
             
             try:
-                # Step 1: Read input data
-                status_text.text("📖 Reading input data...")
-                progress_bar.progress(10)
-                data = read_input_v2(input_path)
+                # Read input data
+                log_placeholder.text("📖 Reading input data...")
+                requirements, timeslots, days, breaks_data, teacher_avail, window = read_input_v2(input_path)
                 
-                # Step 2: Initialize solver
-                status_text.text("🔧 Initializing solver...")
-                progress_bar.progress(20)
-                engine = TimetableCSPv2(
-                    data["timeslots"],
-                    data["requirements"],
-                    data["days"],
-                    data['teacher_availability'],
-                    allow_partial=allow_partial,
-                    debug=debug_mode
+                # Initialize CSP solver
+                log_placeholder.text("⚙️ Initializing solver...")
+                csp = TimetableCSPv2(
+                    requirements=requirements,
+                    timeslots=timeslots,
+                    days=days,
+                    breaks=breaks_data,
+                    teacher_availability=teacher_avail,
+                    window=window,
+                    allow_partial=True,
+                    debug=True
                 )
                 
-                # Step 3: Run diagnostics
-                status_text.text("🔍 Running diagnostics...")
-                progress_bar.progress(30)
-                print(f"[INFO] Loaded {len(engine.days)} days, {len(engine.timeslots)} timeslots, {len(engine.requirements)} requirements")
+                # Solve
+                log_placeholder.text("🔍 Solving constraints... This may take a few minutes...")
+                success = csp.solve(max_attempts_per_var=200)
                 
-                # Step 4: Solve
-                status_text.text("⚙️ Generating timetable... This may take a few minutes...")
-                progress_bar.progress(40)
-                assignments = engine.solve(seed=random_seed)
-                
-                progress_bar.progress(70)
-                
-                # Step 5: Export
-                status_text.text("📝 Exporting timetable...")
-                progress_bar.progress(80)
-                export_to_template(
-                    assignments,
-                    engine,
-                    data["start_date"],
-                    data["end_date"],
-                    output_path,
-                    template_path,
-                    skipped_requirements=engine.skipped_requirements
-                )
-                
-                progress_bar.progress(100)
-                status_text.text("✅ Timetable generated successfully!")
-                
-                # Read generated file
-                with open(output_path, "rb") as f:
-                    st.session_state.generated_file = f.read()
-                
-                # Store unscheduled requirements
-                if engine.skipped_requirements:
-                    unscheduled_data = []
-                    for req, reason in engine.skipped_requirements:
-                        unscheduled_data.append({
-                            "Course": req.course_code,
-                            "Section": req.section_id,
-                            "Teacher": req.teacher,
-                            "Curriculum": req.curriculum,
-                            "Semester": req.semester,
-                            "Slots Required": req.slots_required,
-                            "Min Hours": req.min_total_hours,
-                            "Reason": reason
-                        })
-                    st.session_state.unscheduled_df = pd.DataFrame(unscheduled_data)
-                
-                st.session_state.generation_log = logger.logs
-                
-            finally:
+                # Get logs
                 sys.stdout = old_stdout
-            
-            # Success message
-            st.markdown(f"""
-                <div class="success-box">
-                    <h3>✅ Success!</h3>
-                    <p><strong>Scheduled:</strong> {len(assignments)} assignments</p>
-                    <p><strong>Unscheduled:</strong> {len(engine.skipped_requirements)} requirements</p>
-                    <p>Click the download button below to get your timetable.</p>
-                </div>
-            """, unsafe_allow_html=True)
-            
-            # Clean up temp files
-            if os.path.exists(input_path):
-                os.remove(input_path)
-            if os.path.exists(template_path):
-                os.remove(template_path)
-            
-        except Exception as e:
-            sys.stdout = old_stdout
-            st.markdown(f"""
-                <div class="error-box">
-                    <h3>❌ Error</h3>
-                    <p>{str(e)}</p>
-                </div>
-            """, unsafe_allow_html=True)
-            st.exception(e)
+                generation_logs = log_buffer.getvalue()
+                st.session_state.generation_log = generation_logs.split('\n')
+                
+                if success or csp.allow_partial:
+                    log_placeholder.text("✅ Generation complete! Exporting results...")
+                    
+                    # Export to Excel
+                    output_buffer = io.BytesIO()
+                    export_to_template(
+                        csp=csp,
+                        template_path=template_path,
+                        output_path=None,
+                        output_buffer=output_buffer
+                    )
+                    
+                    # Store in session state
+                    st.session_state.generated_file = output_buffer.getvalue()
+                    
+                    # Store unscheduled requirements
+                    if csp.skipped_requirements:
+                        unscheduled_data = []
+                        for req, reason in csp.skipped_requirements:
+                            unscheduled_data.append({
+                                'Course': req.course_code,
+                                'Section': req.section_id,
+                                'Teacher': req.teacher,
+                                'Hours Required': req.min_total_hours,
+                                'Reason': reason
+                            })
+                        st.session_state.unscheduled_df = pd.DataFrame(unscheduled_data)
+                    else:
+                        st.session_state.unscheduled_df = None
+                    
+                    log_placeholder.empty()
+                    st.success("✅ Timetable generated successfully!")
+                    st.rerun()
+                else:
+                    sys.stdout = old_stdout
+                    st.error("❌ Failed to generate timetable. Check the logs below.")
+                    
+            except Exception as e:
+                sys.stdout = old_stdout
+                st.error(f"❌ Error during generation: {str(e)}")
+                import traceback
+                st.code(traceback.format_exc())
+            finally:
+                # Cleanup
+                if os.path.exists(input_path):
+                    os.remove(input_path)
 
-# Download section
-if st.session_state.generated_file:
+# Display results if generated
+if st.session_state.generated_file is not None:
     st.markdown("---")
     st.subheader("📥 Download Results")
     
-    col_dl1, col_dl2 = st.columns([1, 1])
+    col1, col2 = st.columns([1, 1])
     
-    with col_dl1:
+    with col1:
         st.download_button(
             label="📥 Download Generated Timetable",
             data=st.session_state.generated_file,
@@ -323,82 +177,141 @@ if st.session_state.generated_file:
             use_container_width=True
         )
     
-    with col_dl2:
+    with col2:
         if st.session_state.unscheduled_df is not None and not st.session_state.unscheduled_df.empty:
-            st.info(f"⚠️ {len(st.session_state.unscheduled_df)} requirements could not be scheduled")
+            st.warning(f"⚠️ {len(st.session_state.unscheduled_df)} requirements could not be scheduled")
     
-    # Calendar View Option
+    # Calendar View
     st.markdown("---")
     st.subheader("📅 Interactive Calendar View")
     
-    # Check if HTML viewer exists
-    html_viewer_path = os.path.join(os.getcwd(), "timetable_calendar_view_light_v6.html")
-    
-    if os.path.exists(html_viewer_path):
-        col_cal1, col_cal2 = st.columns([2, 1])
-        
-        with col_cal1:
-            st.markdown("""
-                <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
-                            padding: 20px; border-radius: 12px; color: white;">
-                    <h3 style="margin: 0 0 10px 0;">🗓️ Advanced Calendar Viewer</h3>
-                    <p style="margin: 0; opacity: 0.9;">
-                        View your timetable in a beautiful interactive calendar with:
-                    </p>
-                    <ul style="margin: 10px 0 0 20px; opacity: 0.9;">
-                        <li>📊 Clash detection and highlighting</li>
-                        <li>🔍 Filter by curriculum, semester, section, teacher, course, room</li>
-                        <li>📅 Weekly grid view with time slots</li>
-                        <li>🤖 AI-powered insights (with OpenAI API)</li>
-                        <li>📱 Responsive design</li>
-                    </ul>
-                </div>
-            """, unsafe_allow_html=True)
-        
-        with col_cal2:
-            st.markdown("### How to use:")
-            st.markdown("""
-                1. **Download** the timetable (above)
-                2. **Open** `timetable_calendar_view_light_v6.html` in your browser
-                3. **Upload** the downloaded Excel file
-                4. **Explore** with filters and clash detection!
-            """)
-            
-            # Button to open HTML file
-            html_file_abs_path = os.path.abspath(html_viewer_path).replace('\\', '/')
-            st.markdown(f"""
-                <a href="file:///{html_file_abs_path}" target="_blank" style="text-decoration: none;">
-                    <button style="
-                        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                        color: white;
-                        border: none;
-                        padding: 12px 20px;
-                        border-radius: 8px;
-                        font-weight: 600;
-                        cursor: pointer;
-                        font-size: 14px;
-                        width: 100%;
-                        margin-top: 10px;
-                    ">
-                        🚀 Open Calendar Viewer
-                    </button>
-                </a>
-                <p style="font-size: 11px; color: #6b7280; margin-top: 5px; text-align: center;">
-                    Opens in new browser tab
-                </p>
-            """, unsafe_allow_html=True)
-    else:
-        st.warning("⚠️ Calendar viewer (timetable_calendar_view_light_v6.html) not found in the current directory")
-    
-    # Show table view
-    st.markdown("---")
-    st.markdown("### 📊 Table View (Preview)")
     try:
+        # Read the generated Excel file
         excel_data = io.BytesIO(st.session_state.generated_file)
         df_timetable = pd.read_excel(excel_data, sheet_name='TimeTable')
-        st.dataframe(df_timetable, use_container_width=True, height=400)
+        
+        # Convert timetable to events format for calendar
+        events = []
+        for _, row in df_timetable.iterrows():
+            curriculum = str(row.get('CURRICULUM', ''))
+            course = str(row.get('COURSE', ''))
+            semester = str(row.get('SEMESTER', ''))
+            section = str(row.get('SECTION', ''))
+            teacher = str(row.get('TEACHER', ''))
+            
+            # Process each day (DAY1 to DAY5)
+            for day_num in range(1, 6):
+                day_col = f'DAY{day_num}'
+                time_from_col = f'DAY{day_num}_TIME_FROM'
+                time_to_col = f'DAY{day_num}_TIME_TO'
+                room_col = f'DAY{day_num}_ROOM'
+                
+                if day_col in df_timetable.columns and pd.notna(row.get(day_col)):
+                    day = str(row.get(day_col, ''))
+                    time_from = str(row.get(time_from_col, ''))
+                    time_to = str(row.get(time_to_col, ''))
+                    room = str(row.get(room_col, ''))
+                    
+                    if day and time_from and time_to:
+                        events.append({
+                            'curriculum': curriculum,
+                            'semester': semester,
+                            'section': section,
+                            'course': course,
+                            'teacher': teacher,
+                            'room': room,
+                            'day': day,
+                            'timeFrom': time_from,
+                            'timeTo': time_to
+                        })
+        
+        # Read the HTML template
+        html_template_path = os.path.join(os.getcwd(), "timetable_calendar_view_light_v6.html")
+        
+        if os.path.exists(html_template_path):
+            with open(html_template_path, 'r', encoding='utf-8') as f:
+                html_content = f.read()
+            
+            # Inject the events data into the HTML
+            import json
+            events_json = json.dumps(events)
+            
+            # Find where to inject the data (after the file input logic)
+            # We'll add a script that auto-loads the data
+            injection_script = f"""
+            <script>
+            // Auto-load generated timetable data
+            window.generatedEvents = {events_json};
+            
+            // Wait for page to load, then inject data
+            window.addEventListener('DOMContentLoaded', function() {{
+                if (window.generatedEvents && window.generatedEvents.length > 0) {{
+                    // Simulate the data being loaded
+                    if (typeof window.handleGeneratedData === 'function') {{
+                        window.handleGeneratedData(window.generatedEvents);
+                    }} else {{
+                        // If the function doesn't exist yet, try to parse and render
+                        setTimeout(function() {{
+                            if (typeof parseAndRender === 'function') {{
+                                const mockData = window.generatedEvents.map(e => ({{
+                                    CURRICULUM: e.curriculum,
+                                    SEMESTER: e.semester,
+                                    SECTION: e.section,
+                                    COURSE: e.course,
+                                    TEACHER: e.teacher,
+                                    ROOM: e.room,
+                                    DAY1: e.day === 'Mon' ? e.day : '',
+                                    DAY1_TIME_FROM: e.day === 'Mon' ? e.timeFrom : '',
+                                    DAY1_TIME_TO: e.day === 'Mon' ? e.timeTo : '',
+                                    DAY1_ROOM: e.day === 'Mon' ? e.room : '',
+                                    DAY2: e.day === 'Tue' ? e.day : '',
+                                    DAY2_TIME_FROM: e.day === 'Tue' ? e.timeFrom : '',
+                                    DAY2_TIME_TO: e.day === 'Tue' ? e.timeTo : '',
+                                    DAY2_ROOM: e.day === 'Tue' ? e.room : '',
+                                    DAY3: e.day === 'Wed' ? e.day : '',
+                                    DAY3_TIME_FROM: e.day === 'Wed' ? e.timeFrom : '',
+                                    DAY3_TIME_TO: e.day === 'Wed' ? e.timeTo : '',
+                                    DAY3_ROOM: e.day === 'Wed' ? e.room : '',
+                                    DAY4: e.day === 'Thu' ? e.day : '',
+                                    DAY4_TIME_FROM: e.day === 'Thu' ? e.timeFrom : '',
+                                    DAY4_TIME_TO: e.day === 'Thu' ? e.timeTo : '',
+                                    DAY4_ROOM: e.day === 'Thu' ? e.room : '',
+                                    DAY5: e.day === 'Fri' ? e.day : '',
+                                    DAY5_TIME_FROM: e.day === 'Fri' ? e.timeFrom : '',
+                                    DAY5_TIME_TO: e.day === 'Fri' ? e.timeTo : '',
+                                    DAY5_ROOM: e.day === 'Fri' ? e.room : ''
+                                }}));
+                                parseAndRender(mockData);
+                            }}
+                        }}, 500);
+                    }}
+                }}
+            }});
+            </script>
+            """
+            
+            # Insert the script before </body>
+            html_content = html_content.replace('</body>', injection_script + '</body>')
+            
+            # Hide the file upload section since we're auto-loading data
+            hide_upload_style = """
+            <style>
+            #fileInput { display: none !important; }
+            .control:has(#fileInput) { display: none !important; }
+            </style>
+            """
+            html_content = html_content.replace('</head>', hide_upload_style + '</head>')
+            
+            # Display in iframe
+            components.html(html_content, height=900, scrolling=True)
+            
+        else:
+            st.error("⚠️ Calendar viewer template not found. Please ensure timetable_calendar_view_light_v6.html is in the same folder.")
+            
     except Exception as e:
-        st.error(f"Error loading timetable: {str(e)}")
+        st.error(f"❌ Error loading calendar view: {str(e)}")
+        import traceback
+        st.code(traceback.format_exc())
 
 # Display unscheduled requirements
 if st.session_state.unscheduled_df is not None and not st.session_state.unscheduled_df.empty:
@@ -407,26 +320,12 @@ if st.session_state.unscheduled_df is not None and not st.session_state.unschedu
     st.dataframe(
         st.session_state.unscheduled_df,
         use_container_width=True,
-        height=400
+        height=300
     )
-    
-    # Recommendations
-    with st.expander("💡 Recommendations to Fix Unscheduled Requirements"):
-        st.markdown("""
-        ### How to Fix Unscheduled Requirements:
-        
-        1. **Reduce slots_required**: Lower the number of required slots for these courses in the Excel file
-        2. **Expand teacher availability**: Add more available time slots in the TEACHER_AVAILABILITY sheet
-        3. **Assign different teachers**: Choose teachers with more availability
-        4. **Check for conflicts**: Look for duplicate or conflicting requirements
-        5. **Add more timeslots**: Increase available time slots in the TIMESLOTS sheet
-        6. **Use online rooms**: Change physical rooms to "Online" for more flexibility
-        """)
 
-# Footer
-st.markdown("---")
-st.markdown("""
-    <div style="text-align: center; color: #666; padding: 2rem;">
-        <p>Timetable Generator v1.0 | Powered by Constraint Satisfaction Problem (CSP) Solver</p>
-    </div>
-""", unsafe_allow_html=True)
+# Display generation logs in expander
+if st.session_state.generation_log:
+    with st.expander("📋 View Generation Logs"):
+        for log_line in st.session_state.generation_log[-100:]:  # Show last 100 lines
+            if log_line.strip():
+                st.text(log_line)
