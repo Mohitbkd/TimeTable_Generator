@@ -89,17 +89,20 @@ if st.button("🚀 Generate Timetable", type="primary", use_container_width=True
             try:
                 # Read input data
                 log_placeholder.text("📖 Reading input data...")
-                requirements, timeslots, days, breaks_data, teacher_avail, window = read_input_v2(input_path)
+                input_data = read_input_v2(input_path)
                 
                 # Initialize CSP solver
                 log_placeholder.text("⚙️ Initializing solver...")
                 csp = TimetableCSPv2(
-                    requirements=requirements,
-                    timeslots=timeslots,
-                    days=days,
-                    breaks=breaks_data,
-                    teacher_availability=teacher_avail,
-                    window=window,
+                    requirements=input_data["requirements"],
+                    timeslots=input_data["timeslots"],
+                    days=input_data["days"],
+                    breaks=input_data["breaks"],
+                    teacher_availability=input_data["teacher_availability"],
+                    window={
+                        "start_date": input_data["start_date"],
+                        "end_date": input_data["end_date"]
+                    },
                     allow_partial=True,
                     debug=True
                 )
