@@ -67,10 +67,15 @@ if st.button("🚀 Generate Timetable", type="primary", use_container_width=True
             st.info("Please ensure TimeTableImport_SIS.xlsx is in the same folder as app.py")
             st.stop()
         
-        # Save uploaded file temporarily
-        input_path = "temp_input.xlsx"
-        with open(input_path, "wb") as f:
-            f.write(input_file.getvalue())
+        # Save uploaded file temporarily with unique name
+        import tempfile
+        temp_fd, input_path = tempfile.mkstemp(suffix='.xlsx', prefix='temp_input_')
+        try:
+            with os.fdopen(temp_fd, 'wb') as f:
+                f.write(input_file.getvalue())
+        except Exception:
+            os.close(temp_fd)
+            raise
         
         # Progress container
         progress_container = st.container()
@@ -94,22 +99,17 @@ if st.button("🚀 Generate Timetable", type="primary", use_container_width=True
                 # Initialize CSP solver
                 log_placeholder.text("⚙️ Initializing solver...")
                 csp = TimetableCSPv2(
-                    requirements=input_data["requirements"],
                     timeslots=input_data["timeslots"],
+                    requirements=input_data["requirements"],
                     days=input_data["days"],
-                    breaks=input_data["breaks"],
                     teacher_availability=input_data["teacher_availability"],
-                    window={
-                        "start_date": input_data["start_date"],
-                        "end_date": input_data["end_date"]
-                    },
                     allow_partial=True,
                     debug=True
                 )
                 
                 # Solve
                 log_placeholder.text("🔍 Solving constraints... This may take a few minutes...")
-                success = csp.solve(max_attempts_per_var=200)
+                success = csp.solve(seed=123)
                 
                 # Get logs
                 sys.stdout = old_stdout
@@ -119,17 +119,37 @@ if st.button("🚀 Generate Timetable", type="primary", use_container_width=True
                 if success or csp.allow_partial:
                     log_placeholder.text("✅ Generation complete! Exporting results...")
                     
-                    # Export to Excel
-                    output_buffer = io.BytesIO()
-                    export_to_template(
-                        csp=csp,
-                        template_path=template_path,
-                        output_path=None,
-                        output_buffer=output_buffer
-                    )
+                    # Export to Excel (save to temp file first)
+                    import tempfile
+                    temp_output_fd, temp_output_path = tempfile.mkstemp(suffix='.xlsx', prefix='output_')
+                    os.close(temp_output_fd)  # Close file descriptor, we'll write with openpyxl
                     
-                    # Store in session state
-                    st.session_state.generated_file = output_buffer.getvalue()
+                    try:
+                        export_to_template(
+                            assignments=csp.assignment,
+                            engine=csp,
+                            start_date=input_data["start_date"],
+                            end_date=input_data["end_date"],
+                            output_xlsx=temp_output_path,
+                            template_xlsx=template_path,
+                            skipped_requirements=csp.skipped_requirements
+                        )
+                        
+                        # Read the generated file into memory
+                        with open(temp_output_path, 'rb') as f:
+                            st.session_state.generated_file = f.read()
+                        
+                        # Clean up temp output file
+                        try:
+                            os.remove(temp_output_path)
+                        except:
+                            pass
+                    except Exception as export_error:
+                        try:
+                            os.remove(temp_output_path)
+                        except:
+                            pass
+                        raise export_error
                     
                     # Store unscheduled requirements
                     if csp.skipped_requirements:
@@ -159,9 +179,16 @@ if st.button("🚀 Generate Timetable", type="primary", use_container_width=True
                 import traceback
                 st.code(traceback.format_exc())
             finally:
-                # Cleanup
-                if os.path.exists(input_path):
-                    os.remove(input_path)
+                # Cleanup - try to remove temp file, but don't fail if locked
+                try:
+                    if os.path.exists(input_path):
+                        os.remove(input_path)
+                except PermissionError:
+                    # File is locked, will be cleaned up later
+                    pass
+                except Exception:
+                    # Ignore other cleanup errors
+                    pass
 
 # Display results if generated
 if st.session_state.generated_file is not None:
@@ -187,11 +214,35 @@ if st.session_state.generated_file is not None:
     # Calendar View
     st.markdown("---")
     st.subheader("📅 Interactive Calendar View")
-    
+
+    st.markdown("Upload a timetable Excel file (e.g. a downloaded result) to preview it below. If you don't upload a file, the most recently generated timetable is shown automatically.")
+    calendar_file = st.file_uploader(
+        "Upload timetable Excel (.xlsx) to view",
+        type=["xlsx"],
+        key="calendar_view_uploader"
+    )
+
     try:
-        # Read the generated Excel file
-        excel_data = io.BytesIO(st.session_state.generated_file)
+        # Determine data source for calendar view
+        if calendar_file is not None:
+            calendar_bytes = calendar_file.getvalue()
+            source_label = "uploaded file"
+        else:
+            calendar_bytes = st.session_state.generated_file
+            source_label = "latest generated timetable"
+
+        if not calendar_bytes:
+            st.info("No timetable data available yet. Please upload an Excel file or generate a timetable first.")
+            calendar_bytes = None
+
+        if calendar_bytes is None:
+            raise ValueError("No timetable bytes available")
+
+        # Read the chosen timetable file
+        excel_data = io.BytesIO(calendar_bytes)
         df_timetable = pd.read_excel(excel_data, sheet_name='TimeTable')
+
+        st.caption(f"Showing calendar for {source_label}.")
         
         # Convert timetable to events format for calendar
         events = []
@@ -295,15 +346,6 @@ if st.session_state.generated_file is not None:
             
             # Insert the script before </body>
             html_content = html_content.replace('</body>', injection_script + '</body>')
-            
-            # Hide the file upload section since we're auto-loading data
-            hide_upload_style = """
-            <style>
-            #fileInput { display: none !important; }
-            .control:has(#fileInput) { display: none !important; }
-            </style>
-            """
-            html_content = html_content.replace('</head>', hide_upload_style + '</head>')
             
             # Display in iframe
             components.html(html_content, height=900, scrolling=True)
